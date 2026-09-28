@@ -148,7 +148,7 @@ instead of $k^4$ for the squared Laplacian.
 
 The cases in [`cases/`](cases) use 512×512 grayscale images from gray,
 `multigrid` with `cell`, `lr=0.002`, `noise=0.2`, and 1000 steps,
-about 195 ms per step on one GPU.
+about 195 ms per step on an NVIDIA GeForce RTX 3060 (12 GB).
 Images at step 1000 for "A glass of wine on a table.", "A school bus on a road.",
 and a longer description of a cat:
 
