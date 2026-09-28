@@ -1,12 +1,26 @@
 # Metamers of a vision-language model
 
-Finds images for which a vision-language model
-([Qwen3.5-0.8B](https://huggingface.co/Qwen/Qwen3.5-0.8B))
-answers a prompt with a prescribed text.
-The image is optimized with Adam using gradients with respect to its pixels.
-With a multigrid decomposition of the image and noise added during the optimization,
-the images show recognizable objects described by the text
-instead of adversarial noise.
+Generates images from a description by inverting a vision-language model.
+The image is optimized from uniform gray until
+[Qwen3.5-0.8B](https://huggingface.co/Qwen/Qwen3.5-0.8B),
+asked to "Describe this image in one sentence.",
+answers with exactly the prescribed text,
+using Adam and gradients with respect to the image.
+With a multigrid parameterization of the image,
+noise during the optimization, and random perturbations of the parameters,
+the images show the described objects
+instead of the adversarial noise that gradient descent on plain pixels produces.
+
+[<img src="https://pkarnakov.github.io/metamers/media/perturb.png" width="800">](https://pkarnakov.github.io/metamers/media/perturb.png)
+
+Images for the targets
+"A glass of wine on a table.",
+"A school bus on a road.",
+and "A cat sitting on a table." (the two right images, the rightmost with a smoothness penalty),
+512×512 grayscale, 1000 steps each.
+The first and the last give exactly the target,
+see [perturbation of the parameters](#perturbation-of-the-parameters).
+A shorter report with the best examples is at <https://pkarnakov.github.io/metamers/>.
 
 The term follows the model metamers of
 [Feather et al. (NeurIPS 2019)](https://proceedings.neurips.cc/paper/2019/hash/ac27b77292582bc293a51055bfc994ee-Abstract.html),
@@ -17,12 +31,6 @@ are often unrecognizable to humans,
 see also the follow-up by [Feather et al. (2023)](https://doi.org/10.1038/s41593-023-01442-0).
 Here, the matched response is the generated text,
 which is the latest possible stage.
-
-[<img src="https://pkarnakov.github.io/metamers/media/cases.png" width="800">](https://pkarnakov.github.io/metamers/media/cases.png)
-
-Metamers for "A glass of wine on a table.", "A school bus on a road.",
-and a longer description of a cat, see [results](#results).
-A shorter report with the best examples is at <https://pkarnakov.github.io/metamers/>.
 
 ```bash
 uv sync         # dependencies in .venv, then `source .venv/bin/activate` or prefix with `uv run`
@@ -141,7 +149,11 @@ instead of $k^4$ for the squared Laplacian.
 The cases in [`cases/`](cases) use 512×512 grayscale images from gray,
 `multigrid` with `cell`, `lr=0.002`, `noise=0.2`, and 1000 steps,
 about 195 ms per step on one GPU.
-From the figure above:
+Images at step 1000 for "A glass of wine on a table.", "A school bus on a road.",
+and a longer description of a cat:
+
+[<img src="https://pkarnakov.github.io/metamers/media/cases.png" width="800">](https://pkarnakov.github.io/metamers/media/cases.png)
+
 
 | case | clean image at step 1000 | `tokens_ok` with noise |
 |---|---|---|
