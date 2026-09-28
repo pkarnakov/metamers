@@ -415,7 +415,3 @@ original, `pixel`, and `multigrid` with `node`.
   From a gray image after 200 steps, `--reg_lap 1000` gives smooth blobs,
   and `--reg_tv 300` gives large regions of uniform color with sharp boundaries,
   both still producing the target, while `--reg_tv 1000` does not.
-
-## License
-
-MIT, see [LICENSE](LICENSE).
