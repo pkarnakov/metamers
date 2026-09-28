@@ -1,0 +1,7 @@
+__pycache__
+.venv
+/pages
+*.log
+*.png
+*.jpg
+out_*

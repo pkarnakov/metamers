@@ -1,0 +1,3 @@
+# Only the run scripts of the cases are tracked.
+*/*
+!*/run.sh

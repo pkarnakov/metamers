@@ -1,0 +1,60 @@
+[project]
+name = "metamers"
+version = "0.1"
+authors = [
+    { name="Petr Karnakov", email="pkarnakov@gmail.com" },
+]
+description = "Images optimized until a vision-language model describes them with a prescribed sentence"
+readme = "README.md"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+
+license = {text = "MIT"}
+requires-python = ">=3.12"
+
+dependencies = [
+    "torch>=2.0.0",
+    "torchvision>=0.20.0",
+    "numpy>=1.26.4",
+    "pillow>=10.0.0",
+    "pyyaml>=6.0",
+    "transformers>=5.2.0",
+    "accelerate>=1.0.0",
+    "flash-linear-attention>=0.5.2",
+    "fastapi>=0.141.1",
+    "uvicorn>=0.54.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/pkarnakov/metamers"
+
+[tool.uv]
+torch-backend = "auto"
+package = false
+
+[dependency-groups]
+dev = ["ruff>=0.14.0"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+
+[tool.ruff.lint]
+select = [
+    "E",  # Style errors
+    "W",  # Style warnings
+    "F",  # Logical errors
+    "I",  # Import sorting
+]
+ignore = [
+    "E741",  # Ambiguous variable name
+    "E402",  # Module level import not at top of file
+    "E501",  # Line too long
+]
+
+[tool.ruff.format]
+quote-style = "double"
+
