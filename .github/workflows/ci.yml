@@ -1,0 +1,36 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  lint:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.3.2  # no major tag v10
+      - name: Install ruff
+        run: uv sync --locked --only-dev
+      - name: Check
+        run: uv run --no-sync make check
+
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      # The tests download the processor of the model, not the weights.
+      HF_HUB_OFFLINE: 0
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.3.2
+      - name: Install dependencies
+        run: uv sync --locked
+      - name: Test
+        run: uv run --no-sync make test

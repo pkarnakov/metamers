@@ -38,8 +38,3 @@ Whether an image shows the object or only satisfies the optimized model.
 - Optimize in the latent space of a pretrained VAE (e.g. from Stable Diffusion).
 - A diffusion prior (score distillation).
 - Compare with `pixel`, `multigrid`, and `fft` on the same benchmark.
-
-## Engineering
-
-- Move the check of the differentiable preprocessing against the processor into a pytest test.
-- CI with `make check` and the tests.

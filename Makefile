@@ -12,6 +12,7 @@ Targets:
   viewer      web viewer of the runs in cases/, http://127.0.0.1:8000
   pages       clone the gh-pages branch (the report) into pages/
   check       ruff lint and format check
+  test        tests without the model weights
   fix         ruff lint with fixes and format
   clean       remove out_*
 Cases, run cases/NAME/run.sh with output next to the script:
@@ -47,6 +48,9 @@ check:
 	ruff check
 	ruff format --check
 
+test:
+	pytest
+
 fix:
 	ruff check --fix
 	ruff format
@@ -54,4 +58,4 @@ fix:
 clean:
 	$(RM) -r out_*
 
-.PHONY: help download gray uplot viewer check fix $(CASES) clean
+.PHONY: help download gray uplot viewer check test fix $(CASES) clean
