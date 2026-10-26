@@ -21,11 +21,15 @@ cases.
 ```bash
 uv sync        # dependencies in .venv (torch, transformers, flash-linear-attention, fastapi, ...)
 make check     # ruff lint + format check (read-only)
+make test      # pytest in tests/, without the model weights
 make fix       # ruff check --fix + ruff format
 ```
 
 Ruff: line length 120, double quotes, rules E/W/F/I (E501, E402, E741 ignored).
-There is no test suite.
+Tests in `tests/` cover the parts that do not need the model weights: the differentiable preprocessing
+against the processor (only the processor files are downloaded), the bicubic matrix against PIL,
+the multigrid and Fourier parameterizations, and the regularizers.
+CI (`.github/workflows/ci.yml`) runs `make check` and `make test` on pushes to `main` and pull requests.
 
 ## Pages
 
