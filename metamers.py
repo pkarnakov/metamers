@@ -26,7 +26,7 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 import yaml
-from PIL import Image
+from PIL import Image, ImageDraw, ImageFont
 from transformers import AutoModelForImageTextToText, AutoProcessor
 from transformers.models.qwen2_vl.image_processing_qwen2_vl import smart_resize
 from transformers.utils import logging
@@ -66,6 +66,51 @@ class Noise(StrEnum):
 # With fft, the steps of Adam on all coefficients add up in pixels,
 # so the first step at 256x256 changes pixels as much as multigrid with a 10 times larger rate.
 DEFAULT_LR = {Method.PIXEL: 0.01, Method.MULTIGRID: 0.03, Method.FFT: 0.003}
+
+
+def parse_region(s):
+    """Parses 'X0,Y0,X1,Y1:TEXT' to a dict with the box and the target."""
+    geom, sep, target = s.partition(":")
+    try:
+        x0, y0, x1, y1 = map(float, geom.split(","))
+    except ValueError:
+        x0 = None
+    if not sep or not target or x0 is None or not (0 <= x0 < x1 <= 1 and 0 <= y0 < y1 <= 1):
+        raise argparse.ArgumentTypeError(f"expected X0,Y0,X1,Y1:TEXT with 0 <= X0 < X1 <= 1, got {s!r}")
+    return {"box": [x0, y0, x1, y1], "target": target}
+
+
+def region_pixels(shape, region):
+    """Box of the region in pixels (i0, i1, j0, j1) for an image of shape (C, H, W), at least one pixel."""
+    h, w = shape[1:]
+    x0, y0, x1, y1 = region["box"]
+    i0, j0 = min(round(y0 * h), h - 1), min(round(x0 * w), w - 1)
+    return i0, max(round(y1 * h), i0 + 1), j0, max(round(x1 * w), j0 + 1)
+
+
+def region_view(x, region):
+    """Crop of image x (C, H, W) to the box of the region."""
+    i0, i1, j0, j1 = region_pixels(x.shape, region)
+    return x[:, i0:i1, j0:j1]
+
+
+REGION_COLORS = ["#e6194b", "#3cb44b", "#4363d8", "#f58231", "#911eb4", "#42d4f4", "#f032e6", "#bfef45"]
+
+
+def draw_regions(x, regions):
+    """Image x (C, H, W) as PIL image with the boxes of the regions and their targets."""
+    img = to_pil(x)
+    draw = ImageDraw.Draw(img)
+    font = ImageFont.load_default(size=max(12, img.height // 32))
+    for k, region in enumerate(regions):
+        color = REGION_COLORS[k % len(REGION_COLORS)]
+        i0, i1, j0, j1 = region_pixels(x.shape, region)
+        draw.rectangle([j0, i0, j1 - 1, i1 - 1], outline=color, width=3)
+        label = f"{k}: {region['target']}"
+        left, top, right, bottom = draw.textbbox((j0 + 6, i0 + 4), label, font=font)
+        draw.rectangle([left - 3, top - 2, right + 3, bottom + 2], fill=color)
+        draw.text((j0 + 6, i0 + 4), label, fill="white", font=font)
+    return img
 
 
 def parse_args():
@@ -132,6 +177,13 @@ def parse_args():
         " with equal amplitude per level and the same --mg_loc, independently of --method",
     )
     parser.add_argument(
+        "--shift",
+        type=int,
+        default=0,
+        help="Maximum displacement in pixels of the image in the loss, random in each direction at every step,"
+        " with the uncovered part filled by reflection",
+    )
+    parser.add_argument(
         "--reg_phi", type=float, default=0, help="Weight of the mean squared phase, the argument of the sine"
     )
     parser.add_argument(
@@ -186,6 +238,16 @@ def parse_args():
         default=None,
         help="Maximum length of generated output, None for the target length plus 16 but at least 48",
     )
+    parser.add_argument(
+        "--region",
+        type=parse_region,
+        action="append",
+        default=[],
+        metavar="X0,Y0,X1,Y1:TEXT",
+        help="Box from (X0, Y0) to (X1, Y1) in fractions of the image size, from the top left,"
+        " whose crop must give TEXT, repeatable",
+    )
+    parser.add_argument("--region_weight", type=float, default=1, help="Weight of the loss of each region")
     parser.add_argument("--seed", type=int, default=0, help="Random seed")
     parser.add_argument("--out", default="out", help="Output directory")
     args = parser.parse_args()
@@ -277,6 +339,14 @@ class Patchify:
         pixel_values = x.reshape(gh * gw, c * t * p * p)
         grid = torch.tensor([[1, gh, gw]], device=x.device)
         return pixel_values, grid
+
+
+def shift_image(x, dy, dx):
+    """Image x (C, H, W) displaced by dy rows down and dx columns right, uncovered part reflected."""
+    h, w = x.shape[1:]
+    py, px = abs(dy), abs(dx)
+    x = F.pad(x[None], (px, px, py, py), mode="reflect")[0]
+    return x[:, py - dy : py - dy + h, px - dx : px - dx + w]
 
 
 def laplacian(u):
@@ -410,6 +480,11 @@ def main():
     with open(os.path.join(args.out, "config.yaml"), "w") as f:
         f.write(config)
 
+    if args.region:
+        draw_regions(load_init(args.init, args.size, args.grayscale), args.region).save(
+            os.path.join(args.out, "regions.png")
+        )
+
     model = AutoModelForImageTextToText.from_pretrained(args.model, dtype=torch.bfloat16).to(device)
     model.eval().requires_grad_(False)
     patchify = Patchify(processor.image_processor)
@@ -417,38 +492,51 @@ def main():
     x0 = load_init(args.init, args.size, args.grayscale).to(device)
     print(f"initial output: {generate(model, processor, to_pil(x0), args.prompt, args.max_new_tokens)!r}")
 
-    # Prompt tokens followed by target tokens and end-of-turn.
     text = processor.apply_chat_template(
         build_messages(args.prompt), add_generation_prompt=True, tokenize=False, enable_thinking=False
     )
-    batch = processor(text=[text], images=[to_pil(x0)], return_tensors="pt").to(device)
-    target_ids = processor.tokenizer(args.target + "<|im_end|>", return_tensors="pt").input_ids.to(device)
-    input_ids = torch.cat([batch["input_ids"], target_ids], dim=1)
-    n_target = target_ids.shape[1]
-    extra = {}
-    if "mm_token_type_ids" in batch:
-        extra["mm_token_type_ids"] = F.pad(batch["mm_token_type_ids"], (0, n_target))
 
-    # Check that differentiable preprocessing matches the processor
-    # up to rounding to 8 bits, which PIL also does after each pass of the resize.
-    pv, grid = patchify(x0)
-    err = (pv - batch["pixel_values"]).abs().max().item()
-    assert torch.equal(grid.cpu(), batch["image_grid_thw"].cpu()) and err < 2e-2, f"patchify mismatch: {err}"
+    def make_term(target, view, weight):
+        """Loss term of the target for the image transformed by view, e.g. the crop of a region."""
+        v0 = view(x0)
+        # Prompt tokens followed by target tokens and end-of-turn.
+        batch = processor(text=[text], images=[to_pil(v0)], return_tensors="pt").to(device)
+        target_ids = processor.tokenizer(target + "<|im_end|>", return_tensors="pt").input_ids.to(device)
+        input_ids = torch.cat([batch["input_ids"], target_ids], dim=1)
+        n_target = target_ids.shape[1]
+        extra = {}
+        if "mm_token_type_ids" in batch:
+            extra["mm_token_type_ids"] = F.pad(batch["mm_token_type_ids"], (0, n_target))
 
-    def forward(pv, grid):
-        # Logits only at the last n_target + 1 positions, where position i predicts token i + 1.
-        return model(
-            input_ids=input_ids, pixel_values=pv, image_grid_thw=grid, logits_to_keep=n_target + 1, **extra
-        ).logits
+        # Check that differentiable preprocessing matches the processor
+        # up to rounding to 8 bits, which PIL also does after each pass of the resize.
+        pv, grid = patchify(v0)
+        err = (pv - batch["pixel_values"]).abs().max().item()
+        assert torch.equal(grid.cpu(), batch["image_grid_thw"].cpu()) and err < 2e-2, f"patchify mismatch: {err}"
 
-    if args.compile:
-        forward = torch.compile(forward)
+        def forward(pv, grid):
+            # Logits only at the last n_target + 1 positions, where position i predicts token i + 1.
+            return model(
+                input_ids=input_ids, pixel_values=pv, image_grid_thw=grid, logits_to_keep=n_target + 1, **extra
+            ).logits
 
-    def loss_fn(x):
-        logits = forward(*patchify(x))
-        logits = logits[0, :n_target].float()
-        tokens_ok = (logits.argmax(-1) == target_ids[0]).float().mean().item()
-        return F.cross_entropy(logits, target_ids[0]), tokens_ok
+        if args.compile:
+            forward = torch.compile(forward)
+
+        def loss_fn(x):
+            logits = forward(*patchify(view(x)))
+            logits = logits[0, :n_target].float()
+            tokens_ok = (logits.argmax(-1) == target_ids[0]).float().mean().item()
+            return F.cross_entropy(logits, target_ids[0]), tokens_ok
+
+        return {"target": target, "view": view, "weight": weight, "loss_fn": loss_fn}
+
+    # The full image first, then the regions.
+    terms = [make_term(args.target, lambda x: x, 1)]
+    for region in args.region:
+        view = functools.partial(region_view, region=region)
+        terms.append(make_term(region["target"], view, args.region_weight))
+        print(f"region {region}: view {tuple(view(x0).shape[1:])}")
 
     # Image as a sine of the initial phase plus a perturbation,
     # which keeps the image within the bounds. One level means plain pixels.
@@ -508,14 +596,27 @@ def main():
         x = image(phi)
         # Fresh noise every step, for robustness to small changes of the image.
         noise = args.noise * 0.5 ** (step / args.noise_half) if args.noise_half else args.noise
-        loss, tokens_ok = loss_fn(x + noise * noise_like(x))
+        # Same noise and shift for all terms, so that overlapping views see the same image.
+        xn = x + noise * noise_like(x)
+        if args.shift:
+            dy, dx = torch.randint(-args.shift, args.shift + 1, (2,)).tolist()
+            xn = shift_image(xn, dy, dx)
+        # Backward through the model per term, which keeps one graph of the model at a time.
+        xl = xn.detach().requires_grad_()
+        losses, tokens = [], []
+        for t in terms:
+            lt, tok = t["loss_fn"](xl)
+            (t["weight"] * lt).backward()
+            losses.append(lt.detach())
+            tokens.append(tok)
+        loss, tokens_ok = losses[0], tokens[0]
         reg = (
             args.reg_lap * laplacian(x - x0).square().mean()
             + args.reg_tv * total_variation(x - x0)
             + args.reg_grad * squared_gradient(x - x0)
             + args.reg_phi * phi.square().mean()
         )
-        (loss + reg).backward()
+        (reg + (xn * xl.grad).sum()).backward()
         optimizer.step()
         scheduler.step()
         if args.perturb:
@@ -532,12 +633,18 @@ def main():
             img = to_pil(x)
             img.save(os.path.join(args.out, f"metamer_{step:05d}.png"))
             output = generate(model, processor, img, args.prompt, args.max_new_tokens)
+            regions = []
+            for t, lt, tok in zip(terms[1:], losses[1:], tokens[1:]):
+                out = generate(model, processor, to_pil(t["view"](x)), args.prompt, args.max_new_tokens)
+                regions.append({"target": t["target"], "loss": lt.item(), "tokens_ok": tok, "output": out})
             linf = (x - x0).abs().max().item()
             msg = (
                 f"step={step:5d} loss={loss.item():.4f} reg={reg.item():.4f} tokens_ok={tokens_ok:.2f}"
                 f" linf={linf:.3f} time={time.time() - t0:.0f}s ms/step={step_time / step_count * 1000:.0f}"
                 f" output={output!r}"
             )
+            for i, r in enumerate(regions):
+                msg += f"\n  region={i} loss={r['loss']:.4f} tokens_ok={r['tokens_ok']:.2f} output={r['output']!r}"
             record(
                 step=step,
                 loss=loss.item(),
@@ -548,12 +655,13 @@ def main():
                 ms_step=step_time / step_count * 1000,
                 output=output,
                 image=f"metamer_{step:05d}.png",
+                **({"regions": regions} if regions else {}),
             )
             step_time, step_count = 0.0, 0
             print(msg, flush=True)
             log.write(msg + "\n")
             log.flush()
-            if output == args.target:
+            if output == args.target and all(r["output"] == r["target"] for r in regions):
                 if not reached:
                     print("target reached (8-bit image, standard pipeline)")
                     reached = True

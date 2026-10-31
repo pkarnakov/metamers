@@ -57,9 +57,11 @@ Changing one side requires changing the other.
   model is loaded.
 - `train.log`: human-readable lines `step= ... output='...'`, also printed to stdout.
 - `train.jsonl`: `{"event": "start", "run": "<start time>"}`, then one record per check
-  (`step`, `loss`, `reg`, `tokens_ok`, `linf`, `time`, `ms_step`, `output`, `image`), then
+  (`step`, `loss`, `reg`, `tokens_ok`, `linf`, `time`, `ms_step`, `output`, `image`, and with
+  `--region` a list `regions` of `target`, `loss`, `tokens_ok`, `output`), then
   `{"event": "done"}` at the end. The viewer reads it incrementally, detects a rerun by a change of
   the first line, and reports a run without the done record as running or stopped by the log's age.
+- `regions.png` with `--region`: the boxes and targets on the initial image, written at startup.
 - `metamer_<step:05d>.png` per check, `metamer.png` for the latest image that produces the target.
 
 ## Viewer
@@ -69,6 +71,9 @@ Changing one side requires changing the other.
 - The page polls `/api/runs` every 2 s and updates elements in place (images are swapped once
   loaded, the log table gets new rows prepended, the chart gets `setData()` and keeps its zoom), so nothing flickers.
   Keep new UI parts updating locally rather than re-rendering.
+- Runs are the case directories and their subdirectories with `train.jsonl` or `config.yaml`
+  (e.g. `cases/cat_regions/<start time>/` from a `run.sh` with `--out "$(date ...)"`), named by the
+  path relative to `cases/`; a case with runs in subdirectories is listed only if it has a run itself.
 - Images are cached for a day under a URL with the run id, and only images named in the current
   run's records are listed.
 
@@ -76,8 +81,12 @@ Changing one side requires changing the other.
 
 - fft: `u = irfft2(û · f^(-d))` with `d = --fft_decay`; the gain of the lowest frequency is
   `512^d`, so the learning rate must shrink as `d` grows.
+- `--region X0,Y0,X1,Y1:TEXT`: one more loss term per box, its crop (`region_view()`) fed as a separate
+  image; `loss` and `output` in the records are of the full image, a hit needs all targets.
 - `--noise` is the standard deviation per multigrid level for `--noise_mode multigrid`, with
   `--noise_coarse q` multiplying level `l` (0 finest) by `q^l`; no normalization.
+- `--shift S`: random integer displacement in `[-S, S]` per axis of the image in the loss at every
+  step, after the noise and before the region crops, reflected at the edges (`shift_image()`).
 - `--perturb` adds noise to the parameters after each Adam step; `--perturb_half` and `--noise_half`
   halve the magnitude every H steps, like `--lr_half`, and nothing else.
 - Qwen3.5's linear attention (gated delta rule) uses the Triton kernels of `flash-linear-attention`

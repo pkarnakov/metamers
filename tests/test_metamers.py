@@ -4,6 +4,7 @@ The processor of the model (a few MB, without the weights)
 is downloaded from the Hub unless cached.
 """
 
+import argparse
 import functools
 
 import numpy as np
@@ -95,3 +96,35 @@ def test_regularizers_vanish_on_constant():
 def test_laplacian_vanishes_on_linear():
     u = linear_field(1, 16, 16, Loc.NODE)
     torch.testing.assert_close(metamers.laplacian(u), torch.zeros(1, 14, 14, dtype=torch.float64))
+
+
+def test_parse_region():
+    assert metamers.parse_region("0,0.5,1,1:A cat: black.") == {"box": [0, 0.5, 1, 1], "target": "A cat: black."}
+    for s in ["0,0,1:Cat.", "0,0,1,1", "0.5,0,0.5,1:Cat.", "0,0,1,1.5:Cat.", "a,b,c,d:Cat."]:
+        with pytest.raises(argparse.ArgumentTypeError):
+            metamers.parse_region(s)
+
+
+def test_region_view():
+    x = torch.rand(1, 64, 128)
+    v = metamers.region_view(x, {"box": [0.25, 0.5, 0.5, 1], "target": ""})
+    assert torch.equal(v, x[:, 32:64, 32:64])
+    # At least one pixel.
+    assert metamers.region_view(x, {"box": [1, 1, 1, 1], "target": ""}).shape == (1, 1, 1)
+
+
+def test_draw_regions():
+    x = torch.full((1, 64, 64), 0.5)
+    regions = [{"box": [0, 0, 0.5, 0.5], "target": "Cat."}, {"box": [0.5, 0.5, 1, 1], "target": "Table."}]
+    img = np.asarray(metamers.draw_regions(x, regions))
+    assert img.shape == (64, 64, 3) and (img != 128).any()
+
+
+def test_shift_image():
+    x = torch.rand(1, 16, 20)
+    assert torch.equal(metamers.shift_image(x, 0, 0), x)
+    y = metamers.shift_image(x, 3, -2)
+    assert y.shape == x.shape
+    assert torch.equal(y[:, 3:, :-2], x[:, :-3, 2:])
+    # Reflected at the top edge, without repeating the edge row.
+    assert torch.equal(y[:, 2, :-2], x[:, 1, 2:])
