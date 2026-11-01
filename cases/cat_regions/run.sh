@@ -6,9 +6,8 @@ mkdir -p "$out"
 cp run.sh "$out/"
 ../../metamers.py \
   --target "A cat sitting on a table." \
-  --region "0.1,0.55,0.9,0.95:Table." \
-  --region "0.25,0.1,0.75,0.55:Cat." \
   --size 512 --grayscale \
-  --lr 0.005 --steps 1000 --lr_half 200 \
+  --lr 0.01 --steps 500 --lr_half 200 \
   --shift 64 \
+  --reg_tv 0.1 \
   --out "$out"
