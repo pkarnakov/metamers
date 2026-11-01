@@ -64,6 +64,22 @@ and checked against the processor at startup.
 Images below 256×256 are resized to 256×256 by the processor
 with bicubic interpolation as in PIL.
 
+### Regions
+
+With `--region "X0,Y0,X1,Y1:TEXT"` (repeatable), the loss adds
+the cross-entropy of TEXT for the crop of the box from $(X_0, Y_0)$ to $(X_1, Y_1)$,
+in fractions of the image size from the top left,
+weighted by `--region_weight`,
+
+$$L(x) + w \sum_k L_k(V_k x).$$
+
+The crop $V_k$ goes to the processor as a separate image, which upscales it if small.
+All crops see the same noise.
+The target is reached if the full image and every crop give their targets exactly.
+The boxes and their targets are drawn on the initial image in `regions.png` at startup.
+For example, [`cat_regions`](cases/cat_regions) asks for "A cat sitting on a table."
+from the full image, "Table." from a box in the lower half, and "Cat." from a box above it.
+
 ### Parameterization
 
 The image is $x = x_0 + u$ with initial image $x_0$ (`--init`, default gray)
@@ -127,6 +143,11 @@ of independent Gaussian noise $\xi_l$ on all levels,
 which gives blobs of all sizes instead of independent pixels.
 The noise on level $l$, counted from the finest $l = 0$,
 is multiplied by $q^l$ with `--noise_coarse q`.
+With `--shift S`, the image in the loss is displaced by a random number of pixels
+in $[-S, S]$ along each axis, new at every step,
+with the uncovered part filled by reflection,
+so the image cannot rely on the exact position of its features
+(the same displacement for the full image and the regions).
 With `--perturb σ`, the parameters themselves (the multigrid levels)
 are perturbed after every step, $u_l \leftarrow u_l + \sigma_t \xi_l$,
 with $\sigma_t = \sigma \, 2^{-t / H}$ halving over `--perturb_half H` steps,

@@ -22,8 +22,6 @@ Whether an image shows the object or only satisfies the optimized model.
 - Zero-shot CLIP or SigLIP: probability of the target caption against distractor captions.
 - Transfer rate to other models as a metric, comparable across parameterizations.
   Relates to Feather et al.: are late-stage metamers recognizable to other observers?
-- Would also settle comparisons such as `cat_perturb_tv` against `cat_perturb_tv_reg4`
-  (clean line drawing against more detailed shading).
 
 ## Transformation robustness and ensembles
 

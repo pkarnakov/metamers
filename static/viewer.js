@@ -181,10 +181,11 @@ function showStep() {
   if (+$("#slider").value !== idx) $("#slider").value = idx;
   setText($("#stepinfo"), `step ${step}`);
   const r = rowAt(step);
-  const hit = r && r.output === d.target;
+  const hit = r && isHit(r, d.target);
   const o = $("#output");
   o.classList.toggle("hit", !!hit);
-  patch(o, r ? `<div class="row">loss ${fmt(r.loss, 4)} · tokens_ok ${fmt(r.tokens_ok, 2)} · linf ${fmt(r.linf)} ${hit ? "· exact target" : ""}</div>${esc(r.output)}` : "");
+  patch(o, r ? `<div class="row">loss ${fmt(r.loss, 4)} · tokens_ok ${fmt(r.tokens_ok, 2)} · linf ${fmt(r.linf)} ${hit ? "· exact target" : ""}</div>${esc(r.output)}${(r.regions || []).map((g, i) =>
+    `<div class="row ${g.output === g.target ? "hit" : ""}">region ${i}: loss ${fmt(g.loss, 4)} · tokens_ok ${fmt(g.tokens_ok, 2)} · ${esc(g.output)}</div>`).join("")}` : "");
   document.querySelectorAll("#strip img").forEach(im => im.classList.toggle("cur", +im.dataset.i === idx));
   document.querySelectorAll("#logtab tr").forEach(tr => tr.classList.toggle("cur", +tr.dataset.step === step));
   const cur = $("#logtab tr.cur");
@@ -213,7 +214,10 @@ function renderStrip() {
   });
 }
 
-const logRow = (r, target) => `<tr data-step="${r.step}" class="${r.output === target ? "hit" : ""}"><td>${r.step}</td><td>${fmt(r.loss, 3)}</td><td>${fmt(r.tokens_ok, 2)}</td><td>${esc(r.output)}</td></tr>`;
+// Exact target of the full image and of all regions.
+const isHit = (r, target) => r.output === target && (r.regions || []).every(g => g.output === g.target);
+const outputs = r => [r.output, ...(r.regions || []).map(g => g.output)].join(" | ");
+const logRow = (r, target) => `<tr data-step="${r.step}" class="${isHit(r, target) ? "hit" : ""}"><td>${r.step}</td><td>${fmt(r.loss, 3)}</td><td>${fmt(r.tokens_ok, 2)}</td><td>${esc(outputs(r))}</td></tr>`;
 
 // Rows are newest first. New rows are inserted at the top, the table is rebuilt only if the log was restarted.
 function renderLog() {
@@ -234,7 +238,7 @@ function chartData(d) {
     log.map(r => r.step),
     log.map(r => r.loss > 0 ? r.loss : null),
     log.map(r => r.tokens_ok),
-    log.map(r => r.output === d.target ? 0 : null),
+    log.map(r => isHit(r, d.target) ? 0 : null),
   ];
 }
 
@@ -273,7 +277,7 @@ function makeChart(el) {
       }],
       setCursor: [u => {
         const i = u.cursor.idx, r = i != null ? detail?.log[i] : null;
-        patch($("#hover"), r ? `step ${r.step}: ${esc(r.output)}` : "");
+        patch($("#hover"), r ? `step ${r.step}: ${esc(outputs(r))}` : "");
       }],
       setSelect: [u => { if (u.select.width > 0) zoomed = true; }],
     },

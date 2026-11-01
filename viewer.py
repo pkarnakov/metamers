@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Web viewer for the runs in cases/: images over the steps, outputs, loss, and
+Web viewer for the runs in cases/ and their subdirectories: images over the steps, outputs, loss, and
 arguments, newest first. The page polls the server, so new and running cases
 update without reloading.
 """
@@ -83,18 +83,44 @@ def read_config(case):
         return {}
 
 
+def is_run(path):
+    return (path / "train.jsonl").exists() or (path / "config.yaml").exists()
+
+
+def run_dirs():
+    """
+    Cases and the runs in their subdirectories, e.g. cases/<case>/<start time>/.
+    A case with runs in subdirectories is listed only if it has a run itself.
+    """
+    res = []
+    for case in CASES.iterdir() if CASES.exists() else []:
+        if not case.is_dir():
+            continue
+        subs = [d for d in case.iterdir() if d.is_dir() and is_run(d)]
+        if is_run(case) or not subs:
+            res.append(case)
+        res += subs
+    return res
+
+
 def case_dir(name):
     case = (CASES / name).resolve()
-    if case.parent != CASES or not case.is_dir():
+    if not case.is_dir() or case.parent != CASES and case.parent.parent != CASES:
         raise HTTPException(404, f"no case {name!r}")
     return case
+
+
+def is_hit(row, target):
+    """Exact target of the full image and of all regions."""
+    regions = row.get("regions", [])
+    return target is not None and row.get("output") == target and all(g["output"] == g["target"] for g in regions)
 
 
 def summary(case, log):
     config = read_config(case)
     rows = log.rows
     target = config.get("target")
-    hits = [r["step"] for r in rows if target is not None and r.get("output") == target]
+    hits = [r["step"] for r in rows if is_hit(r, target)]
     path = case / "train.jsonl"
     # Time of the last change of the log, of the edit of run.sh if not run yet.
     mtime = next(f.stat().st_mtime for f in [path, case / "run.sh", case] if f.exists())
@@ -109,7 +135,7 @@ def summary(case, log):
     images = [r["step"] for r in rows if r.get("image") and (case / r["image"]).exists()]
     last = rows[-1] if rows else {}
     return {
-        "name": case.name,
+        "name": case.relative_to(CASES).as_posix(),
         "mtime": mtime,
         "status": status,
         "running": status == "running",
@@ -125,7 +151,7 @@ def summary(case, log):
         "checks": len(rows),
         "hits": len(hits),
         "first_hit": hits[0] if hits else None,
-        "last_hit": bool(rows) and rows[-1].get("output") == target,
+        "last_hit": bool(rows) and is_hit(rows[-1], target),
         "image": images[-1] if images else None,
         "images": images,
         # Id of the run, for caching of images.
@@ -140,16 +166,15 @@ def index():
 
 @app.get("/api/runs")
 def runs():
-    cases = [c for c in CASES.iterdir() if c.is_dir()] if CASES.exists() else []
     summaries = []
-    for case in cases:
+    for case in run_dirs():
         s = summary(case, read_log(case))
         del s["images"]
         summaries.append(s)
     return sorted(summaries, key=lambda s: s["mtime"], reverse=True)
 
 
-@app.get("/api/runs/{name}")
+@app.get("/api/runs/{name:path}")
 def run(name: str):
     case = case_dir(name)
     run_sh = case / "run.sh"
@@ -162,7 +187,7 @@ def run(name: str):
     }
 
 
-@app.get("/img/{name}/{step}.png")
+@app.get("/img/{name:path}/{step}.png")
 def image(name: str, step: int):
     path = case_dir(name) / f"metamer_{step:05d}.png"
     if not path.exists():
