@@ -276,6 +276,11 @@ def to_pil(x):
     return Image.fromarray(a)
 
 
+def save_image(img, path, grayscale):
+    """Saves the 8-bit RGB image from to_pil(), as a single channel if grayscale, which is lossless."""
+    (img.convert("L") if grayscale else img).save(path)
+
+
 @functools.cache
 def pil_bicubic_matrix(n_out, n_in):
     """
@@ -631,7 +636,7 @@ def main():
 
         if step % args.check_every == 0 or step == args.steps:
             img = to_pil(x)
-            img.save(os.path.join(args.out, f"metamer_{step:05d}.png"))
+            save_image(img, os.path.join(args.out, f"metamer_{step:05d}.png"), args.grayscale)
             output = generate(model, processor, img, args.prompt, args.max_new_tokens)
             regions = []
             for t, lt, tok in zip(terms[1:], losses[1:], tokens[1:]):
@@ -666,7 +671,7 @@ def main():
                     print("target reached (8-bit image, standard pipeline)")
                     reached = True
                 # Latest image that produces the target.
-                img.save(os.path.join(args.out, "metamer.png"))
+                save_image(img, os.path.join(args.out, "metamer.png"), args.grayscale)
                 if args.stop:
                     break
     record(event="done")

@@ -62,7 +62,8 @@ Changing one side requires changing the other.
   `{"event": "done"}` at the end. The viewer reads it incrementally, detects a rerun by a change of
   the first line, and reports a run without the done record as running or stopped by the log's age.
 - `regions.png` with `--region`: the boxes and targets on the initial image, written at startup.
-- `metamer_<step:05d>.png` per check, `metamer.png` for the latest image that produces the target.
+- `metamer_<step:05d>.png` per check, `metamer.png` for the latest image that produces the target;
+  single-channel with `--grayscale` (lossless, the processor converts to RGB).
 
 ## Viewer
 

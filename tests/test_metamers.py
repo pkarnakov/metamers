@@ -128,3 +128,11 @@ def test_shift_image():
     assert torch.equal(y[:, 3:, :-2], x[:, :-3, 2:])
     # Reflected at the top edge, without repeating the edge row.
     assert torch.equal(y[:, 2, :-2], x[:, 1, 2:])
+
+
+def test_save_image_grayscale_lossless(tmp_path):
+    x = torch.rand(1, 32, 32)
+    img = metamers.to_pil(x)
+    metamers.save_image(img, tmp_path / "a.png", grayscale=True)
+    loaded = Image.open(tmp_path / "a.png")
+    assert loaded.mode == "L" and np.array_equal(np.asarray(loaded.convert("RGB")), np.asarray(img))
